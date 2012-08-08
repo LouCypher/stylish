@@ -37,8 +37,8 @@ locale	stylish	zh-CN	locale/zh-CN/
 locale	stylish	zh-TW	locale/zh-TW/
 
 interfaces components/stylishStyle.xpt
-component {6af398eb-bc14-4001-b40b-4e830b3863b1} components/stylishStyle.js
-contract @userstyles.org/style;1 {6af398eb-bc14-4001-b40b-4e830b3863b1}
+component {ea17a766-cdd4-444b-8d8d-b5bb935a2a22} components/stylishStyle.js
+contract @userstyles.org/style;1 {ea17a766-cdd4-444b-8d8d-b5bb935a2a22}
 
 interfaces components/stylishDataSource.xpt
 component {d6fe57ea-1126-4dc6-8636-d25d5b901929} components/stylishDataSource.js
@@ -71,4 +71,8 @@ style	about:addons	chrome://stylish/skin/manage-addons-fx6.css 	application={926
 style	chrome://mozapps/content/extensions/extensions.xul	chrome://stylish/skin/manage-addons-fx6.css 	application={ec8030f7-c20a-464f-9b0e-13a3a9e97384}	appversion>=6.0a1
 style	chrome://mozapps/content/extensions/extensions.xul	chrome://stylish/skin/manage-addons-fx6.css 	application={3550f703-e582-4d05-9a08-453d09bdfdc6}	appversion>=6.0a1
 style	chrome://mozapps/content/extensions/extensions.xul	chrome://stylish/skin/manage-addons-fx6.css 	application={92650c4d-4b8e-4d2a-b7eb-24ecf4f6b63a}	appversion>=2.3
+
+# fennec
+override chrome://stylish/content/overlay-fx4.xul chrome://stylish/content/overlay-mobile.xul	application={aa3c5121-dab2-40e2-81ca-7ea25febc110}
+override chrome://stylish/content/manage-standalone.xul chrome://stylish/content/manage.html	application={aa3c5121-dab2-40e2-81ca-7ea25febc110}
 
