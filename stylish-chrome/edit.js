@@ -11,6 +11,19 @@ appliesToEverythingTemplate.innerHTML = t("appliesToEverything") + ' <button cla
 var sectionTemplate = document.createElement("div");
 sectionTemplate.innerHTML = '<label>' + t('sectionCode') + '</label><textarea class="code"></textarea><br><div class="applies-to"><label>' + t("appliesLabel") + ' <img class="applies-to-help" src="help.png" alt="' + t('helpAlt') + '"></label><ul class="applies-to-list"></ul></div><button class="remove-section">' + t('sectionRemove') + '</button><button class="add-section">' + t('sectionAdd') + '</button>';
 
+
+var editors = [] // array of all CodeMirror instances
+// replace given textarea with the CodeMirror editor
+function setupCodeMirror(textarea) {
+  var cm = CodeMirror.fromTextArea(textarea, {
+    mode: 'css',
+    lineNumbers: true,
+    lineWrapping: true
+  });
+  editors.push(cm);
+}
+
+
 function makeDirty() {
 	dirty = true;
 }
@@ -89,6 +102,7 @@ function addSection(section) {
 
 	var sections = document.getElementById("sections");
 	sections.appendChild(div);
+  setupCodeMirror(div.querySelector('.code'));
 }
 
 function removeAppliesTo(event) {
@@ -149,10 +163,39 @@ function validate() {
 	if (name == "") {
 		return t("styleMissingName");
 	}
+	// validate the regexps
+	if (Array.prototype.some.call(document.querySelectorAll(".applies-to-list"), function(list) {
+		return Array.prototype.some.call(list.childNodes, function(li) {
+			if (li.className == appliesToEverythingTemplate.className) {
+				return false;
+			}
+			var valueElement = li.querySelector("[name=applies-value]");
+			var a = li.querySelector("[name=applies-type]").value;
+			var b = valueElement.value;
+			if (a && b) {
+				if (a == "regexp") {
+					try {
+						new RegExp(b);
+					} catch (ex) {
+						valueElement.focus();
+						return true;
+					}
+				}
+			}
+			return false;
+		});
+	})) {
+		return t("styleBadRegexp");
+	}
 	return null;
 }
 
 function save() {
+  // save the contents of the CodeMirror editors back into the textareas
+  for(var i=0; i < editors.length; i++) {
+    editors[i].save();
+  }
+
 	var error = validate();
 	if (error) {
 		alert(error);
@@ -212,11 +255,12 @@ function getMeta(e) {
 	return meta;
 }
 
-function saveComplete(id) {
+function saveComplete(style) {
+	dirty = false;
 	// Go from new style URL to edit style URL
 	if (location.href.indexOf("id=") == -1) {
 		// give the code above a moment before we kill the page
-		setTimeout(function() {location.href = "edit.html?id=" + id;}, 200);
+		setTimeout(function() {location.href = "edit.html?id=" + style.id;}, 200);
 	} else {
 		initTitle(document.getElementById("name").value);
 	}
@@ -228,15 +272,17 @@ function showMozillaFormat() {
 
 function toMozillaFormat() {
 	return getSections().map(function(section) {
-		if (section.meta.length == 0) {
+		if (section.urls.length == 0 && section.urlPrefixes.length == 0 && section.domains.length == 0 && section.regexps.length == 0) {
 			return section.code;
 		}
-		var mf = "@-moz-document ";
-		mf += section.meta.map(function(meta) {
-			// escape the meta according to css rules
-			return meta[0] + "(\"" + meta[1].replace(/\\/g, "\\\\") + "\")";
-		}).join(", ");
-		return mf + " {\n" + section.code + "\n}";
+		var propertyToCss = {"urls": "url", "urlPrefixes": "url-prefix", "domains": "domain", "regexps": "regexp"};
+		var cssMds = [];
+		for (var i in propertyToCss) {
+			cssMds = cssMds.concat(section[i].map(function(v) {
+				return propertyToCss[i] + "(\"" + v.replace(/\\/g, "\\\\") + "\")";
+			}));
+		}
+		return "@-moz-document " + cssMds.join(", ") + " {\n" + section.code + "\n}";
 	}).join("\n\n");
 }
 
@@ -260,8 +306,10 @@ chrome.extension.onMessage.addListener(function(request, sender, sendResponse) {
 	var installed = document.getElementById("installed");
 	switch(request.name) {
 		case "styleUpdated":
-			initWithStyle(request.style);
-			dirty = false;
+			if (styleId == request.id) {
+				initWithStyle(request.style);
+				dirty = false;
+			} 
 			break;
 		case "styleDeleted":
 			if (styleId == request.id) {
@@ -283,4 +331,3 @@ document.getElementById("to-mozilla").addEventListener("click", showMozillaForma
 document.getElementById("to-mozilla-help").addEventListener("click", showToMozillaHelp, false);
 document.getElementById("save-button").addEventListener("click", save, false);
 document.getElementById("sections-help").addEventListener("click", showSectionHelp, false);
-

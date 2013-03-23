@@ -219,6 +219,7 @@ function goUpdateCommand(a) {
 }*/
 
 function handleOrionContext(event) {
+	se.focus();
 	goUpdateGlobalEditMenuItems();
 	goUpdateCommand("stylish_cmd_undo");
 	var menu = document.getElementById("orion-context");
@@ -287,7 +288,8 @@ function preview() {
 	style.name = nameE.value;
 	style.code = codeElementWrapper.value;
 	checkForErrors();
-	style.setPreview(true);
+	// delay this so checkForErrors doesn't pick up on what happens
+	setTimeout(function() { style.setPreview(true);}, 50);
 }
 
 function cancelDialog() {

@@ -117,51 +117,9 @@ Style.prototype = {
 		try {
 			this.getStyleSheet(css);
 		} finally {
-			consoleService.unregisterListener(errorListener);
+			// do this on a delay because of https://bugzilla.mozilla.org/show_bug.cgi?id=831428
+			Components.classes["@mozilla.org/timer;1"].createInstance(Components.interfaces.nsITimer).initWithCallback(function() {consoleService.unregisterListener(errorListener)}, 10, Components.interfaces.nsITimer.TYPE_ONE_SHOT);
 		}
-	},
-
-	copyListToClipboard: function() {
-		function escape(text) {
-			return text.replace(/&/g, "&amp;").replace(/>/g, "&gt;").replace(/</g, "&lt;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-		}
-		var styles = this.list(0, {}).sort(function(a, b) {
-			if (a.name > b.name)
-				return 1;
-			if (b.name > a.name)
-				return -1;
-			return a.id = b.id;
-		});
-
-		listHTML = "<ul><li>" + styles.map(function(style) {
-			var text = "";
-			if (style.url)
-				text += "<a href=\"" + escape(style.url) + "\">" + escape(style.name) + "</a>";
-			else
-				text += escape(style.name);
-			if (!style.enabled)
-				text += " (disabled)";
-		}).join("</li><li>") + "</li></ul>";
-
-		listText = styles.map(function(style) {
-			return "* " + style.name + (style.url ? " <" + style.url + ">" : "") + (style.enabled ? "" : " (disabled)");
-		}).join("\n");
-
-		var text = Components.classes["@mozilla.org/supports-string;1"].createInstance(Components.interfaces.nsISupportsString);  
-		text.data = listText;
-
-		var html = Components.classes["@mozilla.org/supports-string;1"].createInstance(Components.interfaces.nsISupportsString);  
-		html.data = listHTML;
-
-		var trans = Components.classes["@mozilla.org/widget/transferable;1"].createInstance(Components.interfaces.nsITransferable);
-		trans.addDataFlavor("text/unicode");  
-		trans.setTransferData("text/unicode", text, listText.length * 2);
-
-		trans.addDataFlavor("text/html");  
-		trans.setTransferData("text/html", html, listHTML.length * 2);
-
-		var clipboard = Components.classes["@mozilla.org/widget/clipboard;1"].getService(Components.interfaces.nsIClipboard);  
-		clipboard.setData(trans, null, Components.interfaces.nsIClipboard.kGlobalClipboard); 
 	},
 
 	regexToSample: function(r) {
@@ -490,7 +448,10 @@ Style.prototype = {
 		//if we have a url for a hash, use that
 		if (this.md5Url) {
 			function handleMd5(text) {
-				if (text == that.md5) {
+				if (text.length != 32) {
+					Components.utils.reportError("Could not update '" + that.name + "' - '" + that.md5Url + "' did not return a md5 hash.");
+					notifyDone("no-update-available");
+				} else if (text == that.md5) {
 					notifyDone("no-update-available");
 				} else {
 					notifyDone("update-available");
@@ -499,8 +460,11 @@ Style.prototype = {
 			this.download(this.md5Url, handleMd5, handleFailure);
 		//otherwise use the update URL which makes us download the full code
 		} else if (this.updateUrl) {
-			function handleUpdateUrl(text) {
-				if (text.replace(/\s/g,"") == (that.originalCode || that.code).replace(/\s/g,"")) {
+			function handleUpdateUrl(text, contentType) {
+				if (contentType != "text/css") {
+					Components.utils.reportError("Could not update '" + that.name + "' - '" + that.updateUrl + "' returned content type '" + contentType + "'.");
+					notifyDone("no-update-available");
+				} else if (text.replace(/\s/g,"") == (that.originalCode || that.code).replace(/\s/g,"")) {
 					notifyDone("no-update-available");
 				} else {
 					notifyDone("update-available");
@@ -525,7 +489,12 @@ Style.prototype = {
 		function handleFailure() {
 			notifyDone("update-failure");
 		}
-		function handleSuccess(code) {
+		function handleSuccess(code, contentType) {
+			if (contentType != "text/css") {
+				Components.utils.reportError("Could not update '" + that.name + "' - '" + that.updateUrl + "' returned content type '" + contentType + "'.");
+				notifyDone("update-failure");
+				return;
+			}
 			that.code = code;
 			//we're back to being in sync
 			that.originalCode = code;
@@ -537,6 +506,44 @@ Style.prototype = {
 		} else {
 			notifyDone("no-update-possible");
 		}
+	},
+
+	getPrettyAppliesTo: function(count) {
+		var urls = this.getMeta("url", {});
+		var urlPrefixes = this.getMeta("url-prefix", {});
+		var domains = this.getMeta("domain", {});
+		var regexps = this.getMeta("regexp", {});
+
+		// eliminate subdomains where the root domain is provided
+		domains = domains.filter(function(possibleSubdomain) {
+			return !domains.some(function(possibleRootDomain) {
+				return possibleSubdomain.endsWith("." + possibleRootDomain);
+			});
+		})
+
+		// eliminate urls and url prefixes on that are on a domain specified
+		function doesntMatchDomainRule(url) {
+			var domain;
+			//this can throw for weird urls like about:blank
+			try {
+				domain = this.ios.newURI(url, null, null).host;
+			} catch (ex) {
+				return true;
+			}
+			return !domains.some(function(d) {
+				return domain == d || domain.endsWith("." + d);
+			});
+		}
+		urls = urls.filter(doesntMatchDomainRule, this);
+		urlPrefixes = urlPrefixes.filter(doesntMatchDomainRule, this);
+
+		var r = domains
+			.concat(urlPrefixes.map(function(up) { return up + "*" }))
+			.concat(urls)
+			.concat(regexps);
+
+		count.value = r.length;
+		return r;
 	},
 
 	/*
@@ -580,8 +587,19 @@ Style.prototype = {
 		Array.filter(sheet.cssRules, function(rule) {
 			return rule instanceof Components.interfaces.nsIDOMCSSMozDocumentRule;
 		}).forEach(function (rule) {
-			var mozDoc = rule.cssText.substring(0, rule.cssText.indexOf("{") - 1);
-			//var re = /(url|domain|url-prefix|regexp)\s*\([\'\"]?([^)\'\"]+)[\'\"]?\)\s*,?\s*/g;
+			// get the -moz-doc up to its opening bracket. note that the regexps can contain { too...
+			var mozDoc = null;
+			if (rule.cssRules.length > 0) {
+				var firstSubruleIndex = rule.cssText.indexOf(rule.cssRules[0].cssText);
+				if (firstSubruleIndex > -1) {
+					// let's first try to go up to the first child rule and then chop off the last {
+					mozDoc = rule.cssText.substring(0, firstSubruleIndex).substring(0, rule.cssText.lastIndexOf("{"));
+				}
+			}
+			// if that doesn't work, then just go up to the first {
+			if (mozDoc == null) {
+				mozDoc = rule.cssText.substring(0, rule.cssText.indexOf("{"));
+			}
 			var re = /(?:(url|domain|url-prefix|regexp)\s*\('([^']+?)'\)\s*)|(?:(url|domain|url-prefix|regexp)\s*\("([^"]+?)"\)\s*),?\s*|(?:(url|domain|url-prefix)\s*\(([^\)]+?)\)\s*)/g;
 			var match;
 			while ((match = re.exec(mozDoc)) != null) {
@@ -607,6 +625,10 @@ Style.prototype = {
 		}, this);
 
 		var namespaces = Array.filter(sheet.cssRules, function(rule) {
+			// available in fx 16+, bug 765590
+			if ("NAMESPACE_RULE" in Components.interfaces.nsIDOMCSSRule) {
+				return rule.type == Components.interfaces.nsIDOMCSSRule.NAMESPACE_RULE;
+			}
 			return rule.type == Components.interfaces.nsIDOMCSSRule.UNKNOWN_RULE && rule.cssText.indexOf("@namespace") == 0;
 		}).map(function(rule) {
 			var text = rule.cssText.replace(/\"/g, "");
@@ -641,7 +663,7 @@ Style.prototype = {
 	get dataUrl() {
 		if (!this.code)
 			return null;
-		var nameComment = this.name ? "/*" + this.name.replace("*/", "").replace("#", "") + "*/" : "";
+		var nameComment = this.name ? "/*" + this.name.replace(/\*\//g, "").replace(/#/g, "") + "*/" : "";
 		// this will strip new lines rather than escape - not what we want
 		//return this.ios.newURI("data:text/css," + nameComment + this.code.replace(/\n/g, "%0A"), null, null);
 		return this.ios.newURI("data:text/css," + nameComment + encodeURIComponent(this.code), null, null);
@@ -881,7 +903,12 @@ Style.prototype = {
 		request.addEventListener("readystatechange", function(event) {
 			if (request.readyState == 4) {
 				if ((request.status == 200 || (request.status == 0 && url.indexOf("data:") == 0)) && request.responseText) {
-					successCallback(request.responseText);
+					var contentType = request.getResponseHeader("Content-type");
+					// get rid of charset
+					if (contentType != null && contentType.indexOf(";") > -1) {
+						contentType = contentType.split(";")[0];
+					}
+					successCallback(request.responseText, contentType);
 				} else {
 					Components.utils.reportError("Download of '" + url + "' resulted in status " + request.status);
 					failureCallback();
