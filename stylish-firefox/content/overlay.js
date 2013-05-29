@@ -133,8 +133,8 @@ var stylishOverlay = {
 		stylishOverlay.lastUrl = content.location.href;
 		document.documentElement.setAttribute("stylish-url", content.location.href);
 		try {
-			if (content.document.domain)
-				document.documentElement.setAttribute("stylish-domain", content.document.domain);
+			if (content.location.hostname)
+				document.documentElement.setAttribute("stylish-domain", content.location.hostname);
 			else
 				document.documentElement.setAttribute("stylish-domain", "");
 		} catch (ex) {
