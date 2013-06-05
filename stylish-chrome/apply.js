@@ -33,7 +33,12 @@ function applyStyle(s) {
 }
 
 function applySections(style, sections) {
-	var styleElement = document.createElement("style");
+	var styleElement;
+	if (document.documentElement instanceof SVGSVGElement) {
+		styleElement = document.createElementNS("http://www.w3.org/2000/svg", "style");
+	} else {
+		styleElement = document.createElement("style");
+	}
 	styleElement.setAttribute("id", "stylish-" + style.id);
 	styleElement.setAttribute("class", "stylish");
 	styleElement.setAttribute("type", "text/css");
