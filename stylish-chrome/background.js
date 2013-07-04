@@ -21,6 +21,9 @@ chrome.extension.onMessage.addListener(function(request, sender, sendResponse) {
 		case "styleChanged":
 			cachedStyles = null;
 			break;
+		case "healthCheck":
+			getDatabase(function() { sendResponse(true); }, function() { sendResponse(false); });
+			break;
 	}
 });
 
@@ -198,12 +201,12 @@ function saveStyle(o, callback) {
 				}
 			} else {
 				// create a new record
-				if (!("updateUrl" in o)) {
-					o.updateUrl = null;
-				}
-				if (!("md5Url" in o)) {
-					o.md5Url = null;
-				}
+				// set optional things to null if they're undefined
+				["updateUrl", "md5Url", "url"].filter(function(att) {
+					return !(att in o);
+				}).forEach(function(att) {
+					o[att] = null;
+				});
 				t.executeSql('INSERT INTO styles (name, enabled, url, updateUrl, md5Url) VALUES (?, ?, ?, ?, ?);', [o.name, true, o.url, o.updateUrl, o.md5Url]);
 			}
 
