@@ -132,8 +132,8 @@ var stylishOverlay = {
 		stylishOverlay.lastUrl = content.location.href;
 		document.documentElement.setAttribute("stylish-url", content.location.href);
 		try {
-			if (content.location.hostname)
-				document.documentElement.setAttribute("stylish-domain", content.location.hostname);
+			if (content.document.domain)
+				document.documentElement.setAttribute("stylish-domain", content.document.domain);
 			else
 				document.documentElement.setAttribute("stylish-domain", "");
 		} catch (ex) {
@@ -310,10 +310,6 @@ var stylishOverlay = {
 	findStyle: function(e) {
 		openUILinkIn(stylishOverlay.URL_STRINGS.getFormattedString("findstylesforthissiteurl", [encodeURIComponent(content.location.href)]), "tab");
 	},
-
-  getHelp: function(e) {
-    openUILinkIn("http://userstyles.org/help/stylish_firefox", "tab");
-  },
 
 	menuItemClassesToClear: ["stylish-menuseparator", "style-menu-item", "no-style-menu-item"],
 	clearStyleMenuItems: function(event) {
