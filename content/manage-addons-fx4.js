@@ -40,7 +40,7 @@ var stylishManageAddonsFx4 = {
 		list.appendChild(frag);
 	},
 	
-	startInstallFromUrls: function(button) {
+	startInstallFromUrls: function(node) {
 		const STRINGS = document.getElementById("stylishStrings");
 		var promptService = Components.classes["@mozilla.org/embedcomp/prompt-service;1"].getService(Components.interfaces.nsIPromptService);
 		var o = {}
@@ -52,8 +52,8 @@ var stylishManageAddonsFx4 = {
 			return;
 		}
 		
-		button.setAttribute("image", "chrome://browser/skin/tabbrowser/connecting.png");
-		button.setAttribute("disabled", "true");
+		node.setAttribute("image", "chrome://browser/skin/tabbrowser/connecting.png");
+		node.setAttribute("disabled", "true");
 		
 		// Run through each one, one at a time, keeping track of successes or failures
 		var currentIndex = 0;
@@ -65,15 +65,15 @@ var stylishManageAddonsFx4 = {
 			if (currentIndex < urls.length) {
 				stylishCommon.installFromUrl(urls[currentIndex], processResult);
 			} else {
-				stylishManageAddonsFx4.endInstallFromUrls(results, button);
+				stylishManageAddonsFx4.endInstallFromUrls(results, node);
 			}
 		}
 		stylishCommon.installFromUrl(urls[currentIndex], processResult);
 	},
 	
-	endInstallFromUrls: function(results, button) {
-		button.setAttribute("image", "");
-		button.setAttribute("disabled", "");
+	endInstallFromUrls: function(results, node) {
+		node.setAttribute("image", "");
+		node.setAttribute("disabled", "");
 		if (results.failures.length > 0) {
 			var promptService = Components.classes["@mozilla.org/embedcomp/prompt-service;1"].getService(Components.interfaces.nsIPromptService);
 			const STRINGS = document.getElementById("stylishStrings");
@@ -94,8 +94,12 @@ createItem = function(addon, b, c) {
 }
 
 window.addEventListener('ViewChanged', function(e) {
+	var menu = document.getElementById("stylish-install-from-url");
 	if (e.target.getAttribute("type") == "userstyle") {
 		stylishManageAddonsFx4.applySort();
+		menu.setAttribute("disabled", "true"); // Use the button only
+	} else {
+		menu.setAttribute("disabled", "");
 	}
 }, false);
 window.addEventListener("load", function(e) {

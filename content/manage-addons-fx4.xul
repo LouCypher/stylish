@@ -13,6 +13,10 @@
 	<script src="chrome://stylish/content/common.js"></script>
 	<script src="chrome://stylish/content/manage-addons-fx4.js"></script>
 
+	<menupopup id="utils-menu">
+		<menuitem id="stylish-install-from-url" insertafter="scriptish-installFromFile,utils-installFromFile" label="&installfromurls;" oncommand="stylishManageAddonsFx4.startInstallFromUrls(this)"/>
+	</menupopup>
+
 	<richlistbox id="categories">
 		<stringbundle id="stylishStrings" src="chrome://stylish/locale/manage.properties"/>
 		<richlistitem id="category-userstyles" insertafter="category-plugins" name="&manageaddonstitle;" class="category" value="addons://list/userstyle"/>
