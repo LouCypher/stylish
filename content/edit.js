@@ -1,6 +1,11 @@
 Components.utils.import("resource://gre/modules/XPCOMUtils.jsm");
 Components.utils.import("resource://gre/modules/Services.jsm");
-var require = Components.utils.import("resource://gre/modules/devtools/Loader.jsm", {}).devtools.require;
+var require = null;
+try {
+	require = Components.utils.import("resource://gre/modules/devtools/Loader.jsm", {}).devtools.require;
+} catch (ex) {
+	// file not available...
+}
 
 var saved = false;
 var style = null;
@@ -27,10 +32,12 @@ function init() {
 	if (prefs.getIntPref("editor") == 0) {
 		// sourceeditor, firefox 27+
 		let Editor = null;
-		try {
-			Editor = require("devtools/sourceeditor/editor");
-		} catch (ex) {
-			//unavailable
+		if (require) {
+			try {
+				Editor = require("devtools/sourceeditor/editor");
+			} catch (ex) {
+				//unavailable
+			}
 		}
 		if (Editor && ("modes" in Editor)) {
 			document.getElementById("itsalltext").style.visibility = "hidden";
@@ -148,7 +155,7 @@ function init2() {
 	if (sourceEditorType == "orion") {
 		sourceEditor.addEventListener("ContextMenu", handleOrionContext, false);
 	}
-	if (sourceEditorType == "textarea") {
+	if (sourceEditorType == "textarea" || (sourceEditorType == "sourceeditor" && "setOption" in sourceEditor)) {
 		var wrapLines = prefs.getBoolPref("wrap_lines");
 		refreshWordWrap(wrapLines);
 		var wrapLinesE = document.getElementById("wrap-lines");
@@ -389,7 +396,11 @@ function changeWordWrap(on) {
 }
 
 function refreshWordWrap(on) {
-	codeE.setAttribute("wrap", on ? "on" : "off");
+	if (sourceEditorType == "textarea") {
+		codeE.setAttribute("wrap", on ? "on" : "off");
+	} else if (sourceEditorType == "sourceeditor") {
+		sourceEditor.setOption("lineWrapping", on);
+	}
 }
 
 function insertChromePath() {
@@ -420,52 +431,135 @@ function insertDataURI() {
 	insertCodeAtCaret("data:" + contentType + ";base64," + encoded);
 }
 
-var finder = {
-	QueryInterface: XPCOMUtils.generateQI([Components.interfaces.nsITypeAheadFind, Components.interfaces.nsISupports]),
-	nsITAF: Components.interfaces.nsITypeAheadFind,
+// Firefox 27 changed this interface
+var finderJsmStyle = false;
+try {
+	Components.utils.import("resource://gre/modules/Finder.jsm", {});
+	finderJsmStyle = true;
+} catch (ex) {
+	// file not available...
+}
 
-	init: function(docshell) {},
+var finder = null;
+if (finderJsmStyle) {
+	finder = {
+		_listeners: [],
+		searchString: null,
+		caseSensitive: false,
 
-	find: function(s, linksOnly) {
-		this.searchString = s;
-		return this.findFromIndex(0, false);
-	},
+		addResultListener: function (aListener) {
+			if (this._listeners.indexOf(aListener) === -1)
+				this._listeners.push(aListener);
+		},
 
-	findAgain: function(backwards, linksOnly) {
-		return this.findFromIndex(codeElementWrapper.selectionStart + (backwards ? 0 : 1), backwards);
-	},
+		removeResultListener: function (aListener) {
+			this._listeners = this._listeners.filter(function(l) {return l != aListener;});
+		},
 
-	findFromIndex: function(index, backwards) {
-		var start = backwards ? codeElementWrapper.value.substring(0, index).lastIndexOf(this.searchString) : codeElementWrapper.value.indexOf(this.searchString, index);
-		var result;
-		if (start >= 0) {
-			result = this.nsITAF.FIND_FOUND;
-		} else if (index == 0) {
-			result = this.nsITAF.FIND_NOTFOUND;
-		} else {
-			// try again, start from the start
-			start = backwards ? codeElementWrapper.value.lastIndexOf(this.searchString) : codeElementWrapper.value.indexOf(this.searchString);
-			result = start == -1 ? this.nsITAF.FIND_NOTFOUND : this.nsITAF.FIND_WRAPPED;
-		}
-		codeE.editor.selection.removeAllRanges();
-		if (start >= 0) {
-			codeElementWrapper.setSelectionRange(start, start + this.searchString.length);
-			codeE.editor.selectionController.setDisplaySelection(2);
-			codeE.editor.selectionController.scrollSelectionIntoView(1, 0, false);
-		} else
-			codeElementWrapper.setSelectionRange(0, 0);
-		return result;
-	},
+		_notify: function (aSearchString, aResult, aFindBackwards, aDrawOutline) {
+			this.searchString = aSearchString;
 
-	setDocShell: function(docshell) {},
-	setSelectionModeAndRepaint: function(toggle) {},
-	collapseSelection: function(toggle) {},
+			let data = {
+				result: aResult,
+				findBackwards: aFindBackwards,
+				linkURL: null,
+				rect: {top: 0, right: 0, bottom: 0, left: 0},
+				searchString: this._searchString,
+			};
 
-	searchString: null,
-	caseSensitive: false,
-	foundLink: null,
-	foundEditable: null,
-	currentWindow: null
+			this._listeners.forEach(function(l) {
+				l.onFindResult(data);
+			});
+		},
+
+		fastFind: function(aSearchString, aLinksOnly, aDrawOutline) {
+			this.searchString = aSearchString;
+			let result = this._findFromIndex(0, false);
+			this._notify(aSearchString, result, false, aDrawOutline);
+		},
+
+		findAgain: function(aFindBackwards, aLinksOnly, aDrawOutline) {
+			let result = this._findFromIndex(codeElementWrapper.selectionStart + (aFindBackwards ? 0 : 1), aFindBackwards);
+			this._notify(this.searchString, result, aFindBackwards, aDrawOutline);
+		},
+
+		_findFromIndex: function(index, backwards) {
+			var start = backwards ? codeElementWrapper.value.substring(0, index).lastIndexOf(this.searchString) : codeElementWrapper.value.indexOf(this.searchString, index);
+			var result;
+			var iface = Components.interfaces.nsITypeAheadFind;
+			if (start >= 0) {
+				result = iface.FIND_FOUND;
+			} else if (index == 0) {
+				result = iface.FIND_NOTFOUND;
+			} else {
+				// try again, start from the start
+				start = backwards ? codeElementWrapper.value.lastIndexOf(this.searchString) : codeElementWrapper.value.indexOf(this.searchString);
+				result = start == -1 ? iface.FIND_NOTFOUND : iface.FIND_WRAPPED;
+			}
+			codeE.editor.selection.removeAllRanges();
+			if (start >= 0) {
+				codeElementWrapper.setSelectionRange(start, start + this.searchString.length);
+				codeE.editor.selectionController.setDisplaySelection(2);
+				codeE.editor.selectionController.scrollSelectionIntoView(1, 0, false);
+			} else
+				codeElementWrapper.setSelectionRange(0, 0);
+			return result;
+		},
+
+		highlight: function(aHighlight, aWord) {},
+		enableSelection: function() {},
+		removeSelection: function() {},
+		focusContent: function() {},
+		keyPress: function (aEvent) {}
+	};
+} else {
+	finder = {
+		QueryInterface: XPCOMUtils.generateQI([Components.interfaces.nsITypeAheadFind, Components.interfaces.nsISupports]),
+		nsITAF: Components.interfaces.nsITypeAheadFind,
+
+		init: function(docshell) {},
+
+		find: function(s, linksOnly) {
+			this.searchString = s;
+			return this.findFromIndex(0, false);
+		},
+
+		findAgain: function(backwards, linksOnly) {
+			return this.findFromIndex(codeElementWrapper.selectionStart + (backwards ? 0 : 1), backwards);
+		},
+
+		findFromIndex: function(index, backwards) {
+			var start = backwards ? codeElementWrapper.value.substring(0, index).lastIndexOf(this.searchString) : codeElementWrapper.value.indexOf(this.searchString, index);
+			var result;
+			if (start >= 0) {
+				result = this.nsITAF.FIND_FOUND;
+			} else if (index == 0) {
+				result = this.nsITAF.FIND_NOTFOUND;
+			} else {
+				// try again, start from the start
+				start = backwards ? codeElementWrapper.value.lastIndexOf(this.searchString) : codeElementWrapper.value.indexOf(this.searchString);
+				result = start == -1 ? this.nsITAF.FIND_NOTFOUND : this.nsITAF.FIND_WRAPPED;
+			}
+			codeE.editor.selection.removeAllRanges();
+			if (start >= 0) {
+				codeElementWrapper.setSelectionRange(start, start + this.searchString.length);
+				codeE.editor.selectionController.setDisplaySelection(2);
+				codeE.editor.selectionController.scrollSelectionIntoView(1, 0, false);
+			} else
+				codeElementWrapper.setSelectionRange(0, 0);
+			return result;
+		},
+
+		setDocShell: function(docshell) {},
+		setSelectionModeAndRepaint: function(toggle) {},
+		collapseSelection: function(toggle) {},
+
+		searchString: null,
+		caseSensitive: false,
+		foundLink: null,
+		foundEditable: null,
+		currentWindow: null
+	}
 }
 
 var codeElementWrapper = {
@@ -539,7 +633,14 @@ window.addEventListener("load", function() {
 	// sourceeditor has its own way of doing this
 	if (sourceEditorType != "sourceeditor") {
 		var findBar = document.getElementById("findbar");
-		document.getElementById("internal-code").fastFind = finder;
+		if (finderJsmStyle) {
+			var editor = document.getElementById("internal-code");
+			editor.finder = finder;
+			findBar.browser = editor;
+		} else {
+			document.getElementById("internal-code").fastFind = finder;
+		}
+		findBar._findField.value = "";
 		findBar.open();
 	}
 }, false);
